@@ -22,15 +22,40 @@ app.get("/oauth/callback/chatbot", async (req, res) => {
   app.get("/debug/token", (req, res) => {
     res.json(global.hlTokens || { error: "No tokens loaded" });
   });
+
+  app.get("/debug/base-token", (req, res) => {
+    const baseToken = global.hlLocationToken || global.hlTokens;
+    res.json(
+      baseToken
+        ? {
+            userType: baseToken.userType,
+            locationId: baseToken.locationId,
+            hasAccessToken: !!baseToken.access_token
+          }
+        : { error: "No token loaded" }
+    );
+  });
+  
   
 
   app.get("/test/contacts", async (req, res) => {
     try {
-      const locToken = global.hlLocationToken?.access_token;
-      const locationId = global.hlLocationToken?.locationId;
+      // Use hlLocationToken if you add it later, otherwise fall back to hlTokens
+      const baseToken = global.hlLocationToken || global.hlTokens;
+  
+      if (!baseToken) {
+        return res.status(400).json({ error: "No token loaded in memory" });
+      }
+  
+      const locToken = baseToken.access_token;
+      const locationId = baseToken.locationId;
+      const userType = baseToken.userType;
   
       if (!locToken || !locationId) {
-        return res.status(400).json({ error: "Missing location token" });
+        return res.status(400).json({
+          error: "Token is missing locationId or access_token",
+          userType
+        });
       }
   
       const resp = await axios.get(
@@ -49,6 +74,7 @@ app.get("/oauth/callback/chatbot", async (req, res) => {
       res.status(500).json({ error: "Failed to fetch contacts" });
     }
   });
+  
   
   
 

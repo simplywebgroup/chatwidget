@@ -11,6 +11,9 @@ app.use(express.json());
 // Debug: make sure env is loaded
 console.log("Loaded CLIENT_ID:", process.env.CLIENT_ID);
 
+
+
+
 // =========================
 // DEBUG TOKEN ENDPOINTS
 // =========================
@@ -241,6 +244,91 @@ app.get("/test/contacts", async (req, res) => {
     res.status(500).json({ error: "Failed to fetch contacts" });
   }
 });
+
+// =========================
+// CHATBOT ENDPOINTS
+// =========================
+
+// Send a message from chatbot frontend to GHL
+app.post("/chat/send", async (req, res) => {
+  try {
+    const { contactId, message } = req.body;
+
+    if (!contactId || !message) {
+      return res.status(400).json({ error: "contactId and message required" });
+    }
+
+    const baseToken = global.hlLocationToken;
+    if (!baseToken || !baseToken.access_token) {
+      return res.status(400).json({ error: "Missing location token" });
+    }
+
+    const locToken = baseToken.access_token;
+    const locationId = baseToken.locationId;
+
+    const payload = {
+      locationId,
+      contactId,
+      message: {
+        role: "user",
+        type: "text",
+        text: message
+      }
+    };
+
+    const r = await axios.post(
+      "https://services.leadconnectorhq.com/conversations/messages/",
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${locToken}`,
+          Accept: "application/json",
+          Version: "2021-07-28"
+        }
+      }
+    );
+
+    res.json({ success: true, data: r.data });
+  } catch (err) {
+    console.error("chat/send error:", err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to send message" });
+  }
+});
+
+// Get conversation history for a visitor
+app.get("/chat/history", async (req, res) => {
+  try {
+    const { contactId } = req.query;
+
+    if (!contactId) {
+      return res.status(400).json({ error: "contactId required" });
+    }
+
+    const baseToken = global.hlLocationToken;
+    if (!baseToken || !baseToken.access_token) {
+      return res.status(400).json({ error: "Missing location token" });
+    }
+
+    const locToken = baseToken.access_token;
+
+    const r = await axios.get(
+      `https://services.leadconnectorhq.com/conversations/messages/?contactId=${contactId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${locToken}`,
+          Accept: "application/json",
+          Version: "2021-07-28"
+        }
+      }
+    );
+
+    res.json(r.data);
+  } catch (err) {
+    console.error("chat/history error:", err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to load history" });
+  }
+});
+
 
 // =========================
 // START SERVER

@@ -229,7 +229,7 @@ app.get("/test/contacts", async (req, res) => {
       {
         headers: {
           Authorization: `Bearer ${locToken}`,
-          Accept: "application/json"
+          Accept: "application/json",
           Version: "2021-07-28"
         }
       }

@@ -334,6 +334,134 @@ app.get("/chat/history", async (req, res) => {
 // START SERVER
 // =========================
 
+// =====================================================
+// CHATBOT ENDPOINTS (for your front-end widget)
+// Option A: /chat/init, /chat/send, /chat/history
+// =====================================================
+
+// POST /chat/init
+// Create a contact in HighLevel (location-level)
+// Body can contain: firstName, lastName, email, phone, source, tags
+app.post("/chat/init", async (req, res) => {
+  try {
+    const locToken = global.hlLocationToken?.access_token;
+    const locationId = global.hlLocationToken?.locationId;
+
+    if (!locToken || !locationId) {
+      return res.status(400).json({ error: "No location token available" });
+    }
+
+    const body = req.body || {};
+
+    const contactPayload = {
+      // sensible defaults, but you can pass real data from widget
+      firstName: body.firstName || "Visitor",
+      lastName: body.lastName || "",
+      email: body.email || undefined,
+      phone: body.phone || undefined,
+      source: body.source || "Chat Widget",
+      tags: body.tags || ["chat-widget"],
+    };
+
+    const hlRes = await axios.post(
+      "https://services.leadconnectorhq.com/contacts/",
+      contactPayload,
+      {
+        headers: {
+          Authorization: `Bearer ${locToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      }
+    );
+
+    // Return the raw HL response so the widget can pull out the contact ID
+    return res.json(hlRes.data);
+  } catch (err) {
+    console.error("chat/init error:", err.response?.data || err.message);
+    return res.status(500).json({ error: "Failed to init chat" });
+  }
+});
+
+// POST /chat/send
+// Forwards whatever body you send to /conversations/messages
+// Your widget is responsible for shaping the payload to match HL docs.
+// We only inject locationId if it is missing.
+app.post("/chat/send", async (req, res) => {
+  try {
+    const locToken = global.hlLocationToken?.access_token;
+    const locationId = global.hlLocationToken?.locationId;
+
+    if (!locToken || !locationId) {
+      return res.status(400).json({ error: "No location token available" });
+    }
+
+    // Clone body and ensure locationId is present
+    const payload = { ...(req.body || {}) };
+    if (!payload.locationId) {
+      payload.locationId = locationId;
+    }
+
+    const hlRes = await axios.post(
+      "https://services.leadconnectorhq.com/conversations/messages",
+      payload,
+      {
+        headers: {
+          Authorization: `Bearer ${locToken}`,
+          Version: "2021-07-28",
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      }
+    );
+
+    return res.json(hlRes.data);
+  } catch (err) {
+    console.error("chat/send error:", err.response?.data || err.message);
+    return res.status(500).json({ error: "Failed to send message" });
+  }
+});
+
+// GET /chat/history
+// Proxies to GET /conversations/messages with whatever query params you pass.
+// Typical use will be ?conversationId=xxxxx
+app.get("/chat/history", async (req, res) => {
+  try {
+    const locToken = global.hlLocationToken?.access_token;
+    const locationId = global.hlLocationToken?.locationId;
+
+    if (!locToken || !locationId) {
+      return res.status(400).json({ error: "No location token available" });
+    }
+
+    const params = { ...(req.query || {}) };
+
+    // Ensure locationId is always sent to GHL
+    if (!params.locationId) {
+      params.locationId = locationId;
+    }
+
+    const hlRes = await axios.get(
+      "https://services.leadconnectorhq.com/conversations/messages",
+      {
+        headers: {
+          Authorization: `Bearer ${locToken}`,
+          Version: "2021-07-28",
+          Accept: "application/json",
+        },
+        params,
+      }
+    );
+
+    return res.json(hlRes.data);
+  } catch (err) {
+    console.error("chat/history error:", err.response?.data || err.message);
+    return res.status(500).json({ error: "Failed to fetch history" });
+  }
+});
+
+
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log("Server running on PORT", port);

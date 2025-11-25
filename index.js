@@ -18,6 +18,11 @@ app.get("/oauth/callback/chatbot", async (req, res) => {
     return res.status(400).send("Missing ?code parameter");
   }
 
+  app.get("/debug/token", (req, res) => {
+    res.json(global.hlTokens || { error: "No tokens loaded" });
+  });
+  
+
   app.get("/test/contacts", async (req, res) => {
     try {
       const token = global.hlTokens?.access_token;

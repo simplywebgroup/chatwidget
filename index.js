@@ -18,6 +18,33 @@ app.get("/oauth/callback/chatbot", async (req, res) => {
     return res.status(400).send("Missing ?code parameter");
   }
 
+  app.get("/test/contacts", async (req, res) => {
+    try {
+      const token = global.hlTokens?.access_token;
+      const locationId = global.hlTokens?.locationId;
+  
+      if (!token || !locationId) {
+        return res.status(400).json({ error: "Missing tokens" });
+      }
+  
+      const resp = await axios.get(
+        `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            Accept: "application/json"
+          }
+        }
+      );
+  
+      res.json(resp.data);
+    } catch (err) {
+      console.error(err.response?.data || err.message);
+      res.status(500).json({ error: "Failed to fetch contacts" });
+    }
+  });
+  
+
   try {
     const qs = require("qs"); // Add this at the top with other requires
 

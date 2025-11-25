@@ -19,23 +19,26 @@ app.get("/oauth/callback/chatbot", async (req, res) => {
   }
 
   try {
-    const tokenResponse = await axios.post(
-      "https://services.leadconnectorhq.com/oauth/token",
-      {
-        client_id: process.env.CLIENT_ID,
-        client_secret: process.env.CLIENT_SECRET,
-        grant_type: "authorization_code",
-        code: code,
-        user_type: "Location",
-        redirect_uri: process.env.REDIRECT_URI
-      },
-      {
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json"
-        }
-      }
-    );
+    const qs = require("qs"); // Add this at the top with other requires
+
+const tokenResponse = await axios.post(
+  "https://services.leadconnectorhq.com/oauth/token",
+  qs.stringify({
+    client_id: process.env.CLIENT_ID,
+    client_secret: process.env.CLIENT_SECRET,
+    grant_type: "authorization_code",
+    code: code,
+    user_type: "Location",
+    redirect_uri: process.env.REDIRECT_URI
+  }),
+  {
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/x-www-form-urlencoded"
+    }
+  }
+);
+
 
     console.log("TOKEN RESPONSE:", tokenResponse.data);
 

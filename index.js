@@ -13,11 +13,11 @@ console.log("Loaded CLIENT_ID:", process.env.CLIENT_ID);
 
 // OAuth callback endpoint
 app.get("/oauth/callback/chatbot", async (req, res) => {
-  const { code } = req.query;
-
-  if (!code) {
-    return res.status(400).send("Missing ?code parameter");
-  }
+  try {
+    const code = req.query.code;
+    if (!code) {
+      return res.status(400).send("Missing code");
+    }
 
   app.get("/debug/token", (req, res) => {
     res.json(global.hlTokens || { error: "No tokens loaded" });
@@ -40,7 +40,7 @@ app.get("/oauth/callback/chatbot", async (req, res) => {
 
   app.get("/test/contacts", async (req, res) => {
     try {
-      // Use hlLocationToken if you add it later, otherwise fall back to hlTokens
+      // Always prefer the dedicated Location token
       const baseToken = global.hlLocationToken || global.hlTokens;
   
       if (!baseToken) {
@@ -54,7 +54,11 @@ app.get("/oauth/callback/chatbot", async (req, res) => {
       if (!locToken || !locationId) {
         return res.status(400).json({
           error: "Token is missing locationId or access_token",
-          userType
+          userType,
+          debug: {
+            hasAccessToken: !!locToken,
+            locationId
+          }
         });
       }
   
@@ -80,23 +84,55 @@ app.get("/oauth/callback/chatbot", async (req, res) => {
 
   try {
 
-const tokenResponse = await axios.post(
-  "https://services.leadconnectorhq.com/oauth/token",
-  qs.stringify({
-    client_id: process.env.CLIENT_ID,
-    client_secret: process.env.CLIENT_SECRET,
-    grant_type: "authorization_code",
-    code: code,
-    user_type: "Location",
-    redirect_uri: process.env.REDIRECT_URI
-  }),
-  {
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/x-www-form-urlencoded"
-    }
-  }
-);
+    const tokenResponse = await axios.post(
+      "https://services.leadconnectorhq.com/oauth/token",
+      qs.stringify({
+        client_id: process.env.CLIENT_ID,
+        client_secret: process.env.CLIENT_SECRET,
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: process.env.REDIRECT_URI
+      }),
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+          Version: "2021-07-28"
+        }
+      }
+    );
+
+    const tokenData = tokenResponse.data;
+    console.log("TOKEN RESPONSE:", tokenData);
+
+    // TEMP: store in memory
+    global.hlTokens = tokenData;
+
+
+        // NEW: store separately based on userType
+        if (tokenData.userType === "Location") {
+          global.hlLocationToken = tokenData;
+          console.log("Stored LOCATION token:", {
+            locationId: tokenData.locationId,
+            companyId: tokenData.companyId
+          });
+        } else if (tokenData.userType === "Company") {
+          global.hlCompanyToken = tokenData;
+          console.log("Stored COMPANY token:", {
+            companyId: tokenData.companyId,
+            isBulkInstallation: tokenData.isBulkInstallation
+          });
+        }
+
+        res.send("HighLevel Chatbot Successfully Connected!");
+      } catch (err) {
+        console.error(
+          "Token exchange error:",
+          err.response?.data || err.message
+        );
+        res.status(500).send("Token exchange failed");
+      }
+    });
 
 app.post("/setup/location-token", async (req, res) => {
   try {

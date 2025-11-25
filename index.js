@@ -1,88 +1,54 @@
 const express = require("express");
 const axios = require("axios");
 const dotenv = require("dotenv");
+const qs = require("qs");
 
 dotenv.config();
 
-const qs = require("qs");
 const app = express();
 app.use(express.json());
 
 // Debug: make sure env is loaded
 console.log("Loaded CLIENT_ID:", process.env.CLIENT_ID);
 
-// OAuth callback endpoint
+// =========================
+// DEBUG TOKEN ENDPOINTS
+// =========================
+
+app.get("/debug/token", (req, res) => {
+  res.json(global.hlTokens || { error: "No hlTokens set" });
+});
+
+app.get("/debug/location-token", (req, res) => {
+  res.json(global.hlLocationToken || { error: "No hlLocationToken set" });
+});
+
+app.get("/debug/company-token", (req, res) => {
+  res.json(global.hlCompanyToken || { error: "No hlCompanyToken set" });
+});
+
+app.get("/debug/base-token", (req, res) => {
+  const baseToken = global.hlLocationToken || global.hlTokens;
+  if (!baseToken) {
+    return res.json({ error: "No token loaded" });
+  }
+  res.json({
+    userType: baseToken.userType,
+    locationId: baseToken.locationId,
+    hasAccessToken: !!baseToken.access_token
+  });
+});
+
+// =========================
+// OAUTH CALLBACK
+// =========================
+
 app.get("/oauth/callback/chatbot", async (req, res) => {
   try {
     const code = req.query.code;
     if (!code) {
       return res.status(400).send("Missing code");
     }
-
-  app.get("/debug/token", (req, res) => {
-    res.json(global.hlTokens || { error: "No tokens loaded" });
-  });
-
-  app.get("/debug/base-token", (req, res) => {
-    const baseToken = global.hlLocationToken || global.hlTokens;
-    res.json(
-      baseToken
-        ? {
-            userType: baseToken.userType,
-            locationId: baseToken.locationId,
-            hasAccessToken: !!baseToken.access_token
-          }
-        : { error: "No token loaded" }
-    );
-  });
-  
-  
-
-  app.get("/test/contacts", async (req, res) => {
-    try {
-      // Always prefer the dedicated Location token
-      const baseToken = global.hlLocationToken || global.hlTokens;
-  
-      if (!baseToken) {
-        return res.status(400).json({ error: "No token loaded in memory" });
-      }
-  
-      const locToken = baseToken.access_token;
-      const locationId = baseToken.locationId;
-      const userType = baseToken.userType;
-  
-      if (!locToken || !locationId) {
-        return res.status(400).json({
-          error: "Token is missing locationId or access_token",
-          userType,
-          debug: {
-            hasAccessToken: !!locToken,
-            locationId
-          }
-        });
-      }
-  
-      const resp = await axios.get(
-        `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}`,
-        {
-          headers: {
-            Authorization: `Bearer ${locToken}`,
-            Accept: "application/json"
-          }
-        }
-      );
-  
-      res.json(resp.data);
-    } catch (err) {
-      console.error("test/contacts error:", err.response?.data || err.message);
-      res.status(500).json({ error: "Failed to fetch contacts" });
-    }
-  });
-  
-  
-  
-
-  try {
 
     const tokenResponse = await axios.post(
       "https://services.leadconnectorhq.com/oauth/token",
@@ -105,42 +71,61 @@ app.get("/oauth/callback/chatbot", async (req, res) => {
     const tokenData = tokenResponse.data;
     console.log("TOKEN RESPONSE:", tokenData);
 
-    // TEMP: store in memory
+    // Store in memory
     global.hlTokens = tokenData;
 
+    // Store separately based on userType
+    if (tokenData.userType === "Location") {
+      global.hlLocationToken = tokenData;
+      console.log("Stored LOCATION token:", {
+        locationId: tokenData.locationId,
+        companyId: tokenData.companyId
+      });
+    } else if (tokenData.userType === "Company") {
+      global.hlCompanyToken = tokenData;
+      console.log("Stored COMPANY token:", {
+        companyId: tokenData.companyId,
+        isBulkInstallation: tokenData.isBulkInstallation
+      });
+    }
 
-        // NEW: store separately based on userType
-        if (tokenData.userType === "Location") {
-          global.hlLocationToken = tokenData;
-          console.log("Stored LOCATION token:", {
-            locationId: tokenData.locationId,
-            companyId: tokenData.companyId
-          });
-        } else if (tokenData.userType === "Company") {
-          global.hlCompanyToken = tokenData;
-          console.log("Stored COMPANY token:", {
-            companyId: tokenData.companyId,
-            isBulkInstallation: tokenData.isBulkInstallation
-          });
-        }
+    res.send("HighLevel Chatbot Successfully Connected!");
+  } catch (err) {
+    console.error(
+      "Token exchange error:",
+      err.response?.data || err.message
+    );
+    res.status(500).send("Token exchange failed");
+  }
+});
 
-        res.send("HighLevel Chatbot Successfully Connected!");
-      } catch (err) {
-        console.error(
-          "Token exchange error:",
-          err.response?.data || err.message
-        );
-        res.status(500).send("Token exchange failed");
-      }
-    });
+// =========================
+// OPTIONAL: COMPANY -> LOCATION TOKEN
+// (only needed if you’re using agency/company-level token)
+// =========================
 
 app.post("/setup/location-token", async (req, res) => {
   try {
-    const companyToken = global.hlTokens?.access_token;
-    const companyId = global.hlTokens?.companyId;
+    const base = global.hlCompanyToken || global.hlTokens;
+
+    if (!base) {
+      return res.status(400).json({ error: "No company token loaded" });
+    }
+
+    if (base.userType !== "Company") {
+      return res.status(400).json({
+        error: "Current token is not a Company token",
+        userType: base.userType
+      });
+    }
+
+    const companyToken = base.access_token;
+    const companyId = base.companyId;
 
     if (!companyToken || !companyId) {
-      return res.status(400).json({ error: "No company token loaded" });
+      return res
+        .status(400)
+        .json({ error: "Company token missing access_token or companyId" });
     }
 
     // 1) Get installed locations for this app
@@ -211,26 +196,54 @@ app.post("/setup/location-token", async (req, res) => {
   }
 });
 
-app.get("/debug/location-token", (req, res) => {
-  res.json(global.hlLocationToken || { error: "No location token" });
-});
+// =========================
+// TEST CONTACTS USING LOCATION TOKEN
+// =========================
 
+app.get("/test/contacts", async (req, res) => {
+  try {
+    // Always prefer the dedicated Location token
+    const baseToken = global.hlLocationToken || global.hlTokens;
 
+    if (!baseToken) {
+      return res.status(400).json({ error: "No token loaded in memory" });
+    }
 
-    console.log("TOKEN RESPONSE:", tokenResponse.data);
+    const locToken = baseToken.access_token;
+    const locationId = baseToken.locationId;
+    const userType = baseToken.userType;
 
-    // TEMP: store in memory
-    global.hlTokens = tokenResponse.data;
+    if (!locToken || !locationId) {
+      return res.status(400).json({
+        error: "Token is missing locationId or access_token",
+        userType,
+        debug: {
+          hasAccessToken: !!locToken,
+          locationId
+        }
+      });
+    }
 
-    res.send("HighLevel Chatbot Successfully Connected!");
-  } catch (err) {
-    console.error(
-      "Token exchange error:",
-      err.response?.data || err.message
+    const resp = await axios.get(
+      `https://services.leadconnectorhq.com/contacts/?locationId=${locationId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${locToken}`,
+          Accept: "application/json"
+        }
+      }
     );
-    res.status(500).send("OAuth token exchange failed");
+
+    res.json(resp.data);
+  } catch (err) {
+    console.error("test/contacts error:", err.response?.data || err.message);
+    res.status(500).json({ error: "Failed to fetch contacts" });
   }
 });
+
+// =========================
+// START SERVER
+// =========================
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
